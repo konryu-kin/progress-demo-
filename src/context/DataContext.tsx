@@ -3,7 +3,7 @@ import type { RecordItem, PostItem, User, RecordStats } from "@/types";
 import { calculateDay } from "@/lib/utils";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
-const CURRENT_USER: User = {
+const DEFAULT_USER: User = {
   id: "user-1",
   name: "guest user",
   avatarUrl: "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=120&h=120&q=80",
@@ -48,10 +48,10 @@ const INITIAL_POSTS: PostItem[] = [
     id: "post-1",
     recordId: "rec-1",
     userId: "user-1",
-    user: CURRENT_USER,
+    user: DEFAULT_USER,
     content: "もう少しでレポートが書き終わりそう〜",
     imageUrls: [SAMPLE_NOTE_IMG],
-    activityMinutes: 45,
+    activityMinutes: 0,
     likesCount: 100000,
     createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
   },
@@ -59,10 +59,10 @@ const INITIAL_POSTS: PostItem[] = [
     id: "post-2",
     recordId: "rec-2",
     userId: "user-1",
-    user: CURRENT_USER,
+    user: DEFAULT_USER,
     content: "UIデザインの方眼紙レイアウトとボトムナビゲーションを組んでみた！かなりいい感じ",
     imageUrls: [SAMPLE_CODE_IMG],
-    activityMinutes: 90,
+    activityMinutes: 0,
     likesCount: 1250,
     createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
   },
@@ -70,10 +70,10 @@ const INITIAL_POSTS: PostItem[] = [
     id: "post-3",
     recordId: "rec-1",
     userId: "user-1",
-    user: CURRENT_USER,
+    user: DEFAULT_USER,
     content: "第2章の構成案がまとまった。今日は参考文献の引用箇所をチェックしていく予定！",
     imageUrls: [SAMPLE_NOTE_IMG],
-    activityMinutes: 60,
+    activityMinutes: 0,
     likesCount: 342,
     createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
   },
@@ -94,6 +94,7 @@ interface DataContextType {
   addRecord: (newRecord: Omit<RecordItem, "id" | "createdAt" | "updatedAt">) => Promise<RecordItem>;
   updateRecord: (id: string, updates: Partial<Pick<RecordItem, "title" | "description" | "coverImageUrl">>) => Promise<void>;
   deleteRecord: (id: string) => Promise<void>;
+  updateProfile: (updates: { name?: string; avatarUrl?: string }) => Promise<void>;
   isCreatePostOpen: boolean;
   setIsCreatePostOpen: (open: boolean) => void;
   selectedRecordIdForPost: string | null;
@@ -105,8 +106,19 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 
 const STORAGE_KEY_RECORDS = "progress_app_records_v1";
 const STORAGE_KEY_POSTS = "progress_app_posts_v1";
+const STORAGE_KEY_USER = "progress_app_user_v1";
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [currentUser, setCurrentUser] = useState<User>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_USER);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return DEFAULT_USER;
+  });
+
   const [records, setRecords] = useState<RecordItem[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_RECORDS);
@@ -131,28 +143,55 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
   const [selectedRecordIdForPost, setSelectedRecordIdForPost] = useState<string | null>(null);
 
+  // ユーザー情報の同期（Supabase Auth）
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setCurrentUser({
+          id: user.id,
+          name: user.user_metadata?.name || "guest user",
+          avatarUrl: user.user_metadata?.avatar_url || DEFAULT_USER.avatarUrl,
+        });
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setCurrentUser({
+          id: session.user.id,
+          name: session.user.user_metadata?.name || "guest user",
+          avatarUrl: session.user.user_metadata?.avatar_url || DEFAULT_USER.avatarUrl,
+        });
+      } else {
+        setCurrentUser(DEFAULT_USER);
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
   // Supabase からのデータ取得
   const fetchSupabaseData = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase) return;
     try {
       setIsLoading(true);
-      const { data: recData, error: recError } = await supabase
-        .from("records")
-        .select("*")
-        .order("created_at", { ascending: false });
 
-      if (recError) throw recError;
+      const [recordsResult, postsResult] = await Promise.all([
+        supabase.from("records").select("*").order("created_at", { ascending: false }),
+        supabase.from("posts").select("*, profiles(*)").order("created_at", { ascending: false }),
+      ]);
 
-      const { data: postData, error: postError } = await supabase
-        .from("posts")
-        .select("*")
-        .order("created_at", { ascending: false });
+      if (recordsResult.error) throw recordsResult.error;
+      if (postsResult.error) throw postsResult.error;
 
-      if (postError) throw postError;
-
-      if (recData) {
-        const mappedRecords: RecordItem[] = recData.map((r: any) => ({
+      if (recordsResult.data) {
+        const mappedRecords: RecordItem[] = recordsResult.data.map((r: any) => ({
           id: r.id,
+          userId: r.user_id,
           title: r.title,
           description: r.description || "",
           coverImageUrl: r.cover_image_url || "",
@@ -162,12 +201,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRecords(mappedRecords);
       }
 
-      if (postData) {
-        const mappedPosts: PostItem[] = postData.map((p: any) => ({
+      if (postsResult.data) {
+        const mappedPosts: PostItem[] = postsResult.data.map((p: any) => ({
           id: p.id,
           recordId: p.record_id,
-          userId: p.user_id || CURRENT_USER.id,
-          user: CURRENT_USER,
+          userId: p.user_id,
+          user: p.profiles
+            ? {
+                id: p.profiles.id,
+                name: p.profiles.name || "guest user",
+                avatarUrl: p.profiles.avatar_url || DEFAULT_USER.avatarUrl,
+              }
+            : DEFAULT_USER,
           content: p.content,
           activityMinutes: p.activity_minutes || 0,
           imageUrls: p.image_urls || [],
@@ -177,7 +222,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPosts(mappedPosts);
       }
     } catch (err) {
-      console.warn("Supabase fetch failed, falling back to local data:", err);
+      console.warn("Supabase fetch failed, falling back to local storage:", err);
     } finally {
       setIsLoading(false);
     }
@@ -189,7 +234,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [fetchSupabaseData]);
 
-  // LocalStorage 保存（ローカルモード時またはオフラインキャッシュ）
+  // Supabase Realtime リアルタイム購読（クラウド変更の自動反映）
+  useEffect(() => {
+    const client = supabase;
+    if (!isSupabaseConfigured || !client) return;
+
+    const channel = client
+      .channel("public-db-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "posts" },
+        () => {
+          fetchSupabaseData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "records" },
+        () => {
+          fetchSupabaseData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      client.removeChannel(channel);
+    };
+  }, [fetchSupabaseData]);
+
+  // LocalStorage 保存（キャッシュまたはローカルモード用）
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records));
@@ -205,6 +278,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error(e);
     }
   }, [posts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(currentUser));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [currentUser]);
 
   const getRecordById = (id: string) => records.find((r) => r.id === id);
 
@@ -239,11 +320,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .from("posts")
           .insert({
             record_id: newPostData.recordId,
+            user_id: currentUser.id,
             content: newPostData.content,
             activity_minutes: newPostData.activityMinutes,
             image_urls: newPostData.imageUrls,
           })
-          .select()
+          .select("*, profiles(*)")
           .single();
 
         if (error) throw error;
@@ -251,8 +333,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdPost = {
           id: data.id,
           recordId: data.record_id,
-          userId: data.user_id || CURRENT_USER.id,
-          user: CURRENT_USER,
+          userId: data.user_id,
+          user: data.profiles
+            ? {
+                id: data.profiles.id,
+                name: data.profiles.name || currentUser.name,
+                avatarUrl: data.profiles.avatar_url || currentUser.avatarUrl,
+              }
+            : currentUser,
           content: data.content,
           activityMinutes: data.activity_minutes || 0,
           imageUrls: data.image_urls || [],
@@ -260,12 +348,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           createdAt: data.created_at,
         };
       } catch (err) {
-        console.error("Supabase insert post failed, using local ID:", err);
+        console.error("Supabase insert post failed, fallback to local:", err);
         createdPost = {
           ...newPostData,
           id: "post-" + Date.now(),
-          userId: CURRENT_USER.id,
-          user: CURRENT_USER,
+          userId: currentUser.id,
+          user: currentUser,
           likesCount: 0,
           createdAt: new Date().toISOString(),
         };
@@ -274,8 +362,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdPost = {
         ...newPostData,
         id: "post-" + Date.now(),
-        userId: CURRENT_USER.id,
-        user: CURRENT_USER,
+        userId: currentUser.id,
+        user: currentUser,
         likesCount: 0,
         createdAt: new Date().toISOString(),
       };
@@ -308,6 +396,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             content: updates.content,
             activity_minutes: updates.activityMinutes,
             image_urls: updates.imageUrls,
+            updated_at: new Date().toISOString(),
           })
           .eq("id", id);
       } catch (err) {
@@ -336,6 +425,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data, error } = await supabase
           .from("records")
           .insert({
+            user_id: currentUser.id,
             title: newRecordData.title,
             description: newRecordData.description || "",
             cover_image_url: newRecordData.coverImageUrl || "",
@@ -347,6 +437,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         createdRecord = {
           id: data.id,
+          userId: data.user_id,
           title: data.title,
           description: data.description || "",
           coverImageUrl: data.cover_image_url || "",
@@ -354,10 +445,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           updatedAt: data.updated_at,
         };
       } catch (err) {
-        console.error("Supabase insert record failed, using local ID:", err);
+        console.error("Supabase insert record failed, fallback to local:", err);
         createdRecord = {
           ...newRecordData,
           id: "rec-" + Date.now(),
+          userId: currentUser.id,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -366,6 +458,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdRecord = {
         ...newRecordData,
         id: "rec-" + Date.now(),
+        userId: currentUser.id,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -411,10 +504,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPosts((prev) => prev.filter((p) => p.recordId !== id));
   };
 
+  const updateProfile = async (updates: { name?: string; avatarUrl?: string }) => {
+    const updated = {
+      ...currentUser,
+      ...(updates.name ? { name: updates.name } : {}),
+      ...(updates.avatarUrl ? { avatarUrl: updates.avatarUrl } : {}),
+    };
+    setCurrentUser(updated);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from("profiles")
+          .update({
+            ...(updates.name ? { name: updates.name } : {}),
+            ...(updates.avatarUrl ? { avatar_url: updates.avatarUrl } : {}),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", currentUser.id);
+      } catch (err) {
+        console.error("Supabase update profile failed:", err);
+      }
+    }
+  };
+
   return (
     <DataContext.Provider
       value={{
-        currentUser: CURRENT_USER,
+        currentUser,
         records,
         posts,
         isLoading,
@@ -428,6 +545,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addRecord,
         updateRecord,
         deleteRecord,
+        updateProfile,
         isCreatePostOpen,
         setIsCreatePostOpen,
         selectedRecordIdForPost,

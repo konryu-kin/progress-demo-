@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { X, Image as ImageIcon, Camera } from "lucide-react";
+import { X, Image as ImageIcon, Camera, Loader2 } from "lucide-react";
 import { useData } from "@/context/DataContext";
+import { uploadImageFile } from "@/lib/storage";
 
 const SAMPLE_POST_IMAGES = [
   {
@@ -35,6 +36,7 @@ export const CreatePostModal: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState<string>(SAMPLE_POST_IMAGES[0].url);
   const [customImageUrl, setCustomImageUrl] = useState("");
   const [useNoImage, setUseNoImage] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     if (isCreatePostOpen) {
@@ -52,17 +54,19 @@ export const CreatePostModal: React.FC = () => {
     setIsCreatePostOpen(false);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setCustomImageUrl(reader.result);
-          setUseNoImage(false);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        setIsUploading(true);
+        const url = await uploadImageFile(file, "posts");
+        setCustomImageUrl(url);
+        setUseNoImage(false);
+      } catch (err) {
+        alert("画像のアップロードに失敗しました");
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -187,13 +191,24 @@ export const CreatePostModal: React.FC = () => {
                   )}
 
                   <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                    <label className="btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
-                      <Camera size={15} />
-                      写真・画像を添付
+                    <label
+                      className="btn-secondary"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        cursor: isUploading ? "wait" : "pointer",
+                        fontSize: 13,
+                        opacity: isUploading ? 0.7 : 1,
+                      }}
+                    >
+                      {isUploading ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+                      {isUploading ? "アップロード中..." : "写真・画像を添付"}
                       <input
                         type="file"
                         accept="image/*"
                         style={{ display: "none" }}
+                        disabled={isUploading}
                         onChange={handleFileUpload}
                       />
                     </label>
@@ -228,8 +243,12 @@ export const CreatePostModal: React.FC = () => {
             <button type="button" className="btn-secondary" onClick={handleClose}>
               キャンセル
             </button>
-            <button type="submit" className="btn-primary" disabled={!content.trim() || !recordId}>
-              記録する
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={!content.trim() || !recordId || isUploading}
+            >
+              {isUploading ? "処理中..." : "記録する"}
             </button>
           </div>
         </form>

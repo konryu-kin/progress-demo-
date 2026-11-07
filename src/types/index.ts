@@ -10,6 +10,7 @@ export type User = {
 
 export type RecordItem = {
   id: string;
+  userId?: string;
   title: string;
   description?: string;
   coverImageUrl?: string;
@@ -34,3 +35,5 @@ export type RecordStats = {
   postCount: number;
   totalMinutes: number;
 };
+
+export * from "./database";

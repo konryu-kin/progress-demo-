@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { X } from "lucide-react";
+import { X, Camera, Loader2 } from "lucide-react";
 import { useData } from "@/context/DataContext";
+import { uploadImageFile } from "@/lib/storage";
 
 interface CreateRecordModalProps {
   isOpen: boolean;
@@ -36,8 +37,24 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedCover, setSelectedCover] = useState(PRESET_COVERS[0].url);
+  const [isUploading, setIsUploading] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        setIsUploading(true);
+        const url = await uploadImageFile(file, "records");
+        setSelectedCover(url);
+      } catch (err) {
+        alert("画像のアップロードに失敗しました");
+      } finally {
+        setIsUploading(false);
+      }
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,6 +125,29 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
                   </button>
                 ))}
               </div>
+              <div style={{ marginTop: 10 }}>
+                <label
+                  className="btn-secondary"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    cursor: isUploading ? "wait" : "pointer",
+                    fontSize: 13,
+                    opacity: isUploading ? 0.7 : 1,
+                  }}
+                >
+                  {isUploading ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+                  {isUploading ? "アップロード中..." : "端末から画像を選択"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    disabled={isUploading}
+                    onChange={handleImageFileChange}
+                  />
+                </label>
+              </div>
             </div>
           </div>
 
@@ -115,8 +155,12 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
             <button type="button" className="btn-secondary" onClick={onClose}>
               キャンセル
             </button>
-            <button type="submit" className="btn-primary" disabled={!title.trim()}>
-              作成する
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={!title.trim() || isUploading}
+            >
+              {isUploading ? "処理中..." : "作成する"}
             </button>
           </div>
         </form>
@@ -124,4 +168,3 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
     </div>
   );
 };
-

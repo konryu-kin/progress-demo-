@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { X, Camera } from "lucide-react";
+import { X, Camera, Loader2 } from "lucide-react";
 import { useData } from "@/context/DataContext";
+import { uploadImageFile } from "@/lib/storage";
 import type { RecordItem } from "@/types";
 
 interface EditRecordModalProps {
@@ -37,27 +38,30 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
   const [title, setTitle] = useState(record.title);
   const [description, setDescription] = useState(record.description || "");
   const [coverImageUrl, setCoverImageUrl] = useState(record.coverImageUrl || PRESET_COVERS[0].url);
+  const [isUploading, setIsUploading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setCoverImageUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        setIsUploading(true);
+        const url = await uploadImageFile(file, "records");
+        setCoverImageUrl(url);
+      } catch (err) {
+        alert("画像のアップロードに失敗しました");
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
-    updateRecord(record.id, {
+    await updateRecord(record.id, {
       title: title.trim(),
       description: description.trim(),
       coverImageUrl,
@@ -114,13 +118,24 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
                 ))}
               </div>
               <div style={{ marginTop: 10 }}>
-                <label className="btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
-                  <Camera size={15} />
-                  端末から画像を選択
+                <label
+                  className="btn-secondary"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    cursor: isUploading ? "wait" : "pointer",
+                    fontSize: 13,
+                    opacity: isUploading ? 0.7 : 1,
+                  }}
+                >
+                  {isUploading ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+                  {isUploading ? "アップロード中..." : "端末から画像を選択"}
                   <input
                     type="file"
                     accept="image/*"
                     style={{ display: "none" }}
+                    disabled={isUploading}
                     onChange={handleImageFileChange}
                   />
                 </label>
@@ -132,8 +147,12 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
             <button type="button" className="btn-secondary" onClick={onClose}>
               キャンセル
             </button>
-            <button type="submit" className="btn-primary" disabled={!title.trim()}>
-              保存する
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={!title.trim() || isUploading}
+            >
+              {isUploading ? "処理中..." : "保存する"}
             </button>
           </div>
         </form>
@@ -141,4 +160,3 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
     </div>
   );
 };
-
