@@ -2,23 +2,35 @@
  * アプリ全体で使用する型定義
  */
 
-/** レコード（趣味の活動記録） */
-export type Record = {
+export type User = {
+  id: string;
+  name: string;
+  avatarUrl: string;
+};
+
+export type RecordItem = {
   id: string;
   title: string;
-  description: string;
-  createdAt: string;
+  description?: string;
+  coverImageUrl?: string;
+  createdAt: string; // ISO string
   updatedAt: string;
 };
 
-/** 投稿 */
-export type Post = {
+export type PostItem = {
   id: string;
   recordId: string;
+  userId: string;
+  user?: User;
   content: string;
   imageUrls: string[];
-  activityMinutes: number;
-  createdAt: string;
-  updatedAt: string;
+  activityMinutes: number; // 今回の活動時間（分）
+  createdAt: string; // ISO string
+  likesCount?: number;
 };
 
+export type RecordStats = {
+  currentDay: number;
+  postCount: number;
+  totalMinutes: number;
+};

@@ -1,6 +1,11 @@
 import { RouterProvider } from "react-router-dom";
+import { DataProvider } from "./context/DataContext";
 import { router } from "./router";
 
 export default function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <DataProvider>
+      <RouterProvider router={router} />
+    </DataProvider>
+  );
 }

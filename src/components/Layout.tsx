@@ -1,15 +1,19 @@
+import React from "react";
 import { Outlet } from "react-router-dom";
+import { Header } from "./Header";
+import { BottomNavigation } from "./BottomNavigation";
+import { CreatePostModal } from "@/features/posts/components/CreatePostModal";
 
-export default function Layout() {
+export const Layout: React.FC = () => {
   return (
-    <div className="app-layout">
-      <header>
-        <h1>Progress</h1>
-      </header>
-      <main>
+    <div className="app-container graph-paper-bg">
+      <Header />
+      <main className="app-main">
         <Outlet />
       </main>
+      <BottomNavigation />
+      <CreatePostModal />
     </div>
   );
-}
-
+};
+export default Layout;
