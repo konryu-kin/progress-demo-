@@ -1,32 +1,46 @@
-# React + TypeScript + Vite
+# progress
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+趣味の活動・試行錯誤・継続を記録し、共有するSNSのMVPです。
 
-Currently, two official plugins are available:
+## ローカル起動
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`.env` にSupabaseのURLとPublishable Keyを設定すると、クラウドの共有データを利用します。未設定の場合はブラウザー内のローカルデータで動作します。
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+## Supabaseのセットアップ
+
+1. Supabase Dashboard の SQL Editor で [`supabase/schema.sql`](./supabase/schema.sql) を実行します。
+2. プロジェクトの Edge Functions をデプロイします。
+
+   ```sh
+   supabase login
+   supabase link --project-ref <project-ref>
+   supabase functions deploy shared-api
+   ```
+
+3. Edge Function の環境に `SUPABASE_SERVICE_ROLE_KEY` があることを確認します。Supabaseの予約済み環境変数として提供されない環境では、DashboardのFunction Secretsに登録してください。**このキーを `.env`、`VITE_` 変数、フロントエンドコードに設定しないでください。**
+4. `.env` にURLとPublishable Keyを設定して起動します。
+
+読み取りは公開されたSupabaseテーブルから行い、作成・編集・削除は `shared-api` Edge Function経由で行います。画像アップロードではFunctionが発行した短時間のSigned Upload URLを使います。DB/Storageへの一般公開書き込みポリシーはありません。
+
+いいねはブラウザーごとに作られるランダムIDで重複を防ぎ、集計数は共有表示します。ログインや通知はありません。ブラウザーのサイトデータを消すと、そのブラウザーの「いいね済み」状態は復元できません。
+
+## 公開デモの注意
+
+ログインを設けず全訪問者で1つのGuestデータを共有するため、**訪問者は誰でも共有データを変更・削除できます**。Edge Functionでは入力検証、画像サイズ制限、IP単位のレート制限を行いますが、本人確認や完全な不正操作防止にはなりません。公開前にデータのバックアップと、投稿・画像の監視/削除手順を用意してください。
+
+## コマンド
+
+```sh
+npm run build
+npm run lint
+```

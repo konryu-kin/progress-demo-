@@ -1,0 +1,2 @@
+[functions.shared-api]
+verify_jwt = false

@@ -96,6 +96,12 @@ body {
   gap: 8px;
 }
 
+.app-logo-icon {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
@@ -124,6 +130,15 @@ body {
   flex: 1;
   padding: 20px 16px calc(90px + env(safe-area-inset-bottom, 0px)) 16px;
   overflow-y: auto;
+}
+
+.data-error-banner {
+  padding: 10px 16px;
+  background: #fff1f2;
+  color: #9f1239;
+  border-bottom: 1px solid #fecdd3;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* ページ見出し */
@@ -270,10 +285,10 @@ body {
   background: rgba(15, 23, 42, 0.75);
   backdrop-filter: blur(4px);
   color: #ffffff;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.3px;
-  padding: 4px 14px;
+  padding: 4px 8px;
   border-radius: var(--radius-full);
   white-space: nowrap;
 }
@@ -429,23 +444,37 @@ body {
   font-weight: 700;
 }
 
-.like-button {
-  background: none;
-  border: none;
-  cursor: pointer;
-  display: flex;
+.post-action-button {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: #5A6063;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 4px 6px;
+  gap: 5px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
   border-radius: var(--radius-sm);
-  transition: all 0.15s;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-.like-button:hover {
+.post-action-button:hover {
+  background: var(--primary-blue-subtle);
+  color: var(--primary-blue);
+}
+
+.post-action-button.danger:hover {
+  background: #fff1f2;
+  color: #e11d48;
+}
+
+.post-action-button.like-action.liked {
   color: var(--accent-pink);
+}
+
+.post-action-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 /* 画像サムネイル：文章と半々（50%）のサイズで大きく表示 */
@@ -522,7 +551,7 @@ body {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   background: rgba(248, 250, 252, 0.8);
   padding: 12px;

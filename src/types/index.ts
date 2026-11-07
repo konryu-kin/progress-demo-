@@ -14,6 +14,7 @@ export type RecordItem = {
   title: string;
   description?: string;
   coverImageUrl?: string;
+  startedAt: string;
   createdAt: string; // ISO string
   updatedAt: string;
 };
@@ -27,7 +28,8 @@ export type PostItem = {
   imageUrls: string[];
   activityMinutes: number; // 今回の活動時間（分）
   createdAt: string; // ISO string
-  likesCount?: number;
+  likesCount: number;
+  isLiked: boolean;
 };
 
 export type RecordStats = {

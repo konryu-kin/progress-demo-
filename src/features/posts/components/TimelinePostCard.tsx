@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { Heart } from "lucide-react";
+import { Heart, Pencil, Trash2 } from "lucide-react";
 import type { PostItem } from "@/types";
 import { useData } from "@/context/DataContext";
-import { calculateDay } from "@/lib/utils";
+import { calculateDay, formatMinutes } from "@/lib/utils";
 import { ImagePreviewModal } from "@/components/ImagePreviewModal";
+import { EditPostModal } from "./EditPostModal";
 
 interface TimelinePostCardProps {
   post: PostItem;
@@ -15,17 +16,17 @@ export const TimelinePostCard: React.FC<TimelinePostCardProps> = ({
   post,
   showRecordTag = true,
 }) => {
-  const { getRecordById, getPostsByRecordId } = useData();
-  const [likes, setLikes] = useState(post.likesCount || 0);
-  const [isLiked, setIsLiked] = useState(false);
+  const { getRecordById, getPostsByRecordId, deletePost, togglePostLike } = useData();
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isTogglingLike, setIsTogglingLike] = useState(false);
 
   const record = getRecordById(post.recordId);
   const recordPosts = getPostsByRecordId(post.recordId);
 
   // この投稿時点での経過日数（レコード開始日からこの投稿作成日まで）
   const dayNumber = record
-    ? calculateDay(record.createdAt, post.createdAt)
+    ? calculateDay(record.startedAt, post.createdAt)
     : 1;
 
   // この投稿がレコード内で何番目の投稿か（昇順インデックス+1）
@@ -35,22 +36,29 @@ export const TimelinePostCard: React.FC<TimelinePostCardProps> = ({
     return idx >= 0 ? idx + 1 : recordPosts.length;
   })();
 
-  const handleToggleLike = () => {
-    if (isLiked) {
-      setLikes((prev) => Math.max(0, prev - 1));
-      setIsLiked(false);
-    } else {
-      setLikes((prev) => prev + 1);
-      setIsLiked(true);
+  const handleDelete = async () => {
+    if (!window.confirm("この投稿を削除しますか？")) return;
+    try {
+      await deletePost(post.id);
+    } catch (error) {
+      alert(`投稿を削除できませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
     }
   };
 
-  const formatLikes = (num: number) => {
-    if (num >= 1000) {
-      return `${(num / 1000).toFixed(num % 1000 === 0 ? 0 : 1)}K`;
+  const handleToggleLike = async () => {
+    try {
+      setIsTogglingLike(true);
+      await togglePostLike(post.id);
+    } catch (error) {
+      alert(`いいねを更新できませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
+    } finally {
+      setIsTogglingLike(false);
     }
-    return String(num);
   };
+
+  const formattedLikes = post.likesCount >= 1000
+    ? `${(post.likesCount / 1000).toFixed(post.likesCount % 1000 === 0 ? 0 : 1)}K`
+    : String(post.likesCount);
 
   const thumbnail = post.imageUrls && post.imageUrls.length > 0 ? post.imageUrls[0] : null;
 
@@ -86,7 +94,7 @@ export const TimelinePostCard: React.FC<TimelinePostCardProps> = ({
           )}
         </div>
 
-        {/* フッター行: コンテンツ行の下に配置（レコード名、day・post、いいね） */}
+        {/* フッター行: コンテンツ行の下に配置 */}
         <div className="post-card-footer">
           <div className="post-record-meta-row">
             {showRecordTag && record && (
@@ -95,23 +103,39 @@ export const TimelinePostCard: React.FC<TimelinePostCardProps> = ({
               </Link>
             )}
             <span className="post-meta-line">
-              day {dayNumber} · post {postIndex}
+              day {dayNumber} · post {postIndex} · {formatMinutes(post.activityMinutes)}
             </span>
           </div>
 
           <div className="post-footer-actions">
             <button
               type="button"
-              className="like-button"
+              className={`post-action-button like-action${post.isLiked ? " liked" : ""}`}
               onClick={handleToggleLike}
-              style={isLiked ? { color: "#f43f5e" } : undefined}
+              disabled={isTogglingLike}
+              aria-label={post.isLiked ? "いいねを取り消す" : "いいね"}
+              aria-pressed={post.isLiked}
             >
-              <Heart
-                size={16}
-                fill={isLiked ? "#f43f5e" : "none"}
-                stroke={isLiked ? "#f43f5e" : "currentColor"}
-              />
-              <span>{formatLikes(likes)}</span>
+              <Heart size={15} fill={post.isLiked ? "currentColor" : "none"} />
+              {formattedLikes}
+            </button>
+            <button
+              type="button"
+              className="post-action-button"
+              onClick={() => setIsEditOpen(true)}
+              aria-label="投稿を編集"
+            >
+              <Pencil size={15} />
+              編集
+            </button>
+            <button
+              type="button"
+              className="post-action-button danger"
+              onClick={handleDelete}
+              aria-label="投稿を削除"
+            >
+              <Trash2 size={15} />
+              削除
             </button>
           </div>
         </div>
@@ -121,6 +145,9 @@ export const TimelinePostCard: React.FC<TimelinePostCardProps> = ({
         imageUrl={previewImage}
         onClose={() => setPreviewImage(null)}
       />
+      {isEditOpen && (
+        <EditPostModal post={post} isOpen onClose={() => setIsEditOpen(false)} />
+      )}
     </>
   );
 };

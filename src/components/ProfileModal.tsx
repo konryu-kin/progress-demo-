@@ -31,8 +31,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
         setIsUploading(true);
         const url = await uploadImageFile(file, "avatars");
         setAvatarUrl(url);
-      } catch (err) {
-        alert("アバター画像のアップロードに失敗しました");
+      } catch (error) {
+        alert(`画像をアップロードできませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
       } finally {
         setIsUploading(false);
       }
@@ -188,4 +188,3 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
     </div>
   );
 };
-

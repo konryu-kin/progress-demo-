@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { X, Camera, Loader2 } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { uploadImageFile } from "@/lib/storage";
+import { toLocalDateString } from "@/lib/utils";
 
 interface CreateRecordModalProps {
   isOpen: boolean;
@@ -37,7 +38,9 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedCover, setSelectedCover] = useState(PRESET_COVERS[0].url);
+  const [startedAt, setStartedAt] = useState(toLocalDateString());
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) return null;
 
@@ -48,8 +51,8 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
         setIsUploading(true);
         const url = await uploadImageFile(file, "records");
         setSelectedCover(url);
-      } catch (err) {
-        alert("画像のアップロードに失敗しました");
+      } catch (error) {
+        alert(`画像をアップロードできませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
       } finally {
         setIsUploading(false);
       }
@@ -60,17 +63,24 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
     e.preventDefault();
     if (!title.trim()) return;
 
-    const newRecord = await addRecord({
-      title: title.trim(),
-      description: description.trim(),
-      coverImageUrl: selectedCover,
-    });
+    try {
+      setIsSaving(true);
+      const newRecord = await addRecord({
+        title: title.trim(),
+        description: description.trim(),
+        coverImageUrl: selectedCover,
+        startedAt,
+      });
 
-    setTitle("");
-    setDescription("");
-    onClose();
-    if (onCreated) {
-      onCreated(newRecord.id);
+      setTitle("");
+      setDescription("");
+      setStartedAt(toLocalDateString());
+      onClose();
+      onCreated?.(newRecord.id);
+    } catch (error) {
+      alert(`レコードを作成できませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -107,6 +117,18 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">開始日 *</label>
+              <input
+                type="date"
+                className="form-input"
+                value={startedAt}
+                max={toLocalDateString()}
+                onChange={(e) => setStartedAt(e.target.value)}
+                required
               />
             </div>
 
@@ -158,9 +180,9 @@ export const CreateRecordModal: React.FC<CreateRecordModalProps> = ({
             <button
               type="submit"
               className="btn-primary"
-              disabled={!title.trim() || isUploading}
+              disabled={!title.trim() || isUploading || isSaving}
             >
-              {isUploading ? "処理中..." : "作成する"}
+              {isUploading || isSaving ? "処理中..." : "作成する"}
             </button>
           </div>
         </form>

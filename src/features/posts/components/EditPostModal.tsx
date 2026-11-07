@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { X, Camera } from "lucide-react";
+import { X, Camera, Loader2 } from "lucide-react";
 import { useData } from "@/context/DataContext";
+import { uploadImageFile } from "@/lib/storage";
 import type { PostItem } from "@/types";
 
 interface EditPostModalProps {
@@ -19,19 +20,25 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
   const [imageUrl, setImageUrl] = useState(
     post.imageUrls && post.imageUrls.length > 0 ? post.imageUrls[0] : ""
   );
+  const [activityMinutes, setActivityMinutes] = useState(post.activityMinutes);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setImageUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        setIsUploading(true);
+        setImageUrl(await uploadImageFile(file, "posts"));
+      } catch (error) {
+        alert(`画像をアップロードできませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
+      } finally {
+        setIsUploading(false);
+        input.value = "";
+      }
     }
   };
 
@@ -39,12 +46,19 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
     e.preventDefault();
     if (!content.trim()) return;
 
-    await updatePost(post.id, {
-      content: content.trim(),
-      activityMinutes: 0,
-      imageUrls: imageUrl ? [imageUrl] : [],
-    });
-    onClose();
+    try {
+      setIsSaving(true);
+      await updatePost(post.id, {
+        content: content.trim(),
+        activityMinutes,
+        imageUrls: imageUrl ? [imageUrl] : [],
+      });
+      onClose();
+    } catch (error) {
+      alert(`投稿を保存できませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -66,6 +80,21 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 rows={3}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor={`edit-post-minutes-${post.id}`}>活動時間（分）</label>
+              <input
+                id={`edit-post-minutes-${post.id}`}
+                type="number"
+                className="form-input"
+                min={0}
+                max={1440}
+                step={1}
+                value={activityMinutes}
+                onChange={(e) => setActivityMinutes(Number(e.target.value))}
                 required
               />
             </div>
@@ -97,12 +126,13 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
                 </div>
               )}
               <label className="btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
-                <Camera size={15} />
-                端末から写真を選択
+                {isUploading ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+                {isUploading ? "アップロード中..." : "端末から写真を選択"}
                 <input
                   type="file"
                   accept="image/*"
                   style={{ display: "none" }}
+                  disabled={isUploading}
                   onChange={handleFileChange}
                 />
               </label>
@@ -113,8 +143,8 @@ export const EditPostModal: React.FC<EditPostModalProps> = ({
             <button type="button" className="btn-secondary" onClick={onClose}>
               キャンセル
             </button>
-            <button type="submit" className="btn-primary" disabled={!content.trim()}>
-              保存する
+            <button type="submit" className="btn-primary" disabled={!content.trim() || isUploading || isSaving}>
+              {isSaving ? "保存中..." : "保存する"}
             </button>
           </div>
         </form>

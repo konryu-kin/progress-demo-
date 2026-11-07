@@ -6,8 +6,8 @@
  * 開始日からの経過日数 (DAY 1 から始まる)
  */
 export function calculateDay(startDateStr: string, targetDateStr?: string): number {
-  const start = new Date(startDateStr);
-  const target = targetDateStr ? new Date(targetDateStr) : new Date();
+  const start = parseDate(startDateStr);
+  const target = targetDateStr ? parseDate(targetDateStr) : new Date();
 
   // 日付の差分のみ計算（時刻による誤差をなくすため年月日のみ比較）
   const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
@@ -16,6 +16,21 @@ export function calculateDay(startDateStr: string, targetDateStr?: string): numb
   const diffMs = targetDay.getTime() - startDay.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   return Math.max(1, diffDays + 1);
+}
+
+function parseDate(dateStr: string): Date {
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  return new Date(dateStr);
+}
+
+export function toLocalDateString(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**

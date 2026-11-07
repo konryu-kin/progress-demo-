@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { X, Image as ImageIcon, Camera, Loader2 } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { uploadImageFile } from "@/lib/storage";
@@ -28,25 +28,18 @@ export const CreatePostModal: React.FC = () => {
     isCreatePostOpen,
     setIsCreatePostOpen,
     selectedRecordIdForPost,
+    setSelectedRecordIdForPost,
     addPost,
   } = useData();
 
-  const [recordId, setRecordId] = useState("");
   const [content, setContent] = useState("");
+  const [activityMinutes, setActivityMinutes] = useState(0);
   const [selectedImage, setSelectedImage] = useState<string>(SAMPLE_POST_IMAGES[0].url);
   const [customImageUrl, setCustomImageUrl] = useState("");
   const [useNoImage, setUseNoImage] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-
-  useEffect(() => {
-    if (isCreatePostOpen) {
-      if (selectedRecordIdForPost) {
-        setRecordId(selectedRecordIdForPost);
-      } else if (records.length > 0 && !recordId) {
-        setRecordId(records[0].id);
-      }
-    }
-  }, [isCreatePostOpen, selectedRecordIdForPost, records, recordId]);
+  const [isSaving, setIsSaving] = useState(false);
+  const recordId = selectedRecordIdForPost ?? records[0]?.id ?? "";
 
   if (!isCreatePostOpen) return null;
 
@@ -62,8 +55,8 @@ export const CreatePostModal: React.FC = () => {
         const url = await uploadImageFile(file, "posts");
         setCustomImageUrl(url);
         setUseNoImage(false);
-      } catch (err) {
-        alert("画像のアップロードに失敗しました");
+      } catch (error) {
+        alert(`画像をアップロードできませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
       } finally {
         setIsUploading(false);
       }
@@ -81,24 +74,27 @@ export const CreatePostModal: React.FC = () => {
       return;
     }
 
-    const finalImage = useNoImage
-      ? []
-      : customImageUrl.trim()
-      ? [customImageUrl.trim()]
-      : selectedImage
-      ? [selectedImage]
-      : [];
+    const finalImage = useNoImage ? [] : customImageUrl ? [customImageUrl] : selectedImage ? [selectedImage] : [];
+    try {
+      setIsSaving(true);
+      await addPost({
+        recordId,
+        content: content.trim(),
+        activityMinutes,
+        imageUrls: finalImage,
+      });
 
-    await addPost({
-      recordId,
-      content: content.trim(),
-      activityMinutes: 0,
-      imageUrls: finalImage,
-    });
-
-    setContent("");
-    setCustomImageUrl("");
-    handleClose();
+      setContent("");
+      setActivityMinutes(0);
+      setCustomImageUrl("");
+      setUseNoImage(false);
+      setSelectedRecordIdForPost(null);
+      handleClose();
+    } catch (error) {
+      alert(`投稿を保存できませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -118,7 +114,7 @@ export const CreatePostModal: React.FC = () => {
               <select
                 className="form-select"
                 value={recordId}
-                onChange={(e) => setRecordId(e.target.value)}
+                onChange={(e) => setSelectedRecordIdForPost(e.target.value)}
                 required
               >
                 {records.length === 0 ? (
@@ -143,6 +139,21 @@ export const CreatePostModal: React.FC = () => {
                 rows={3}
                 required
                 autoFocus
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="post-activity-minutes">活動時間（分）</label>
+              <input
+                id="post-activity-minutes"
+                type="number"
+                className="form-input"
+                min={0}
+                max={1440}
+                step={1}
+                value={activityMinutes}
+                onChange={(e) => setActivityMinutes(Number(e.target.value))}
+                required
               />
             </div>
 
@@ -246,9 +257,9 @@ export const CreatePostModal: React.FC = () => {
             <button
               type="submit"
               className="btn-primary"
-              disabled={!content.trim() || !recordId || isUploading}
+              disabled={!content.trim() || !recordId || isUploading || isSaving}
             >
-              {isUploading ? "処理中..." : "記録する"}
+              {isUploading || isSaving ? "処理中..." : "記録する"}
             </button>
           </div>
         </form>

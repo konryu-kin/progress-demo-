@@ -1,11 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { RecordItem, PostItem, User, RecordStats } from "@/types";
-import { calculateDay } from "@/lib/utils";
+import { calculateDay, toLocalDateString } from "@/lib/utils";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { invokeSharedApi } from "@/lib/sharedApi";
+import type { Database } from "@/types/database";
+
+type RecordRow = Database["public"]["Tables"]["records"]["Row"];
+type PostRow = Database["public"]["Tables"]["posts"]["Row"];
+const GUEST_ID = "00000000-0000-4000-8000-000000000001";
 
 const DEFAULT_USER: User = {
-  id: "user-1",
-  name: "guest user",
+  id: GUEST_ID,
+  name: "Guest",
   avatarUrl: "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=120&h=120&q=80",
 };
 
@@ -22,6 +28,7 @@ const INITIAL_RECORDS: RecordItem[] = [
     title: "現コミュ 課題",
     description: "現代コミュニケーション論のレポート作成と参考文献の整理",
     coverImageUrl: SAMPLE_NOTE_IMG,
+    startedAt: toLocalDateString(new Date(Date.now() - 19 * 24 * 60 * 60 * 1000)),
     createdAt: new Date(Date.now() - 19 * 24 * 60 * 60 * 1000).toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -30,6 +37,7 @@ const INITIAL_RECORDS: RecordItem[] = [
     title: "個人開発 progress",
     description: "趣味の継続プロセスを共有・可視化するSNSアプリ開発",
     coverImageUrl: SAMPLE_CODE_IMG,
+    startedAt: toLocalDateString(new Date(Date.now() - 12 * 24 * 60 * 60 * 1000)),
     createdAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -38,6 +46,7 @@ const INITIAL_RECORDS: RecordItem[] = [
     title: "朝ラン＆筋トレ",
     description: "毎朝5kmランニングと体幹トレーニングの習慣化",
     coverImageUrl: SAMPLE_RUN_IMG,
+    startedAt: toLocalDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
     createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -47,35 +56,38 @@ const INITIAL_POSTS: PostItem[] = [
   {
     id: "post-1",
     recordId: "rec-1",
-    userId: "user-1",
+    userId: GUEST_ID,
     user: DEFAULT_USER,
     content: "もう少しでレポートが書き終わりそう〜",
     imageUrls: [SAMPLE_NOTE_IMG],
     activityMinutes: 0,
-    likesCount: 100000,
     createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    likesCount: 0,
+    isLiked: false,
   },
   {
     id: "post-2",
     recordId: "rec-2",
-    userId: "user-1",
+    userId: GUEST_ID,
     user: DEFAULT_USER,
     content: "UIデザインの方眼紙レイアウトとボトムナビゲーションを組んでみた！かなりいい感じ",
     imageUrls: [SAMPLE_CODE_IMG],
     activityMinutes: 0,
-    likesCount: 1250,
     createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+    likesCount: 0,
+    isLiked: false,
   },
   {
     id: "post-3",
     recordId: "rec-1",
-    userId: "user-1",
+    userId: GUEST_ID,
     user: DEFAULT_USER,
     content: "第2章の構成案がまとまった。今日は参考文献の引用箇所をチェックしていく予定！",
     imageUrls: [SAMPLE_NOTE_IMG],
     activityMinutes: 0,
-    likesCount: 342,
     createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    likesCount: 0,
+    isLiked: false,
   },
 ];
 
@@ -84,15 +96,19 @@ interface DataContextType {
   records: RecordItem[];
   posts: PostItem[];
   isLoading: boolean;
+  dataError: string | null;
   isCloudConnected: boolean;
   getRecordById: (id: string) => RecordItem | undefined;
   getPostsByRecordId: (recordId: string) => PostItem[];
   getRecordStats: (recordId: string) => RecordStats;
-  addPost: (newPost: Omit<PostItem, "id" | "userId" | "user" | "createdAt" | "likesCount">) => Promise<PostItem>;
+  togglePostLike: (id: string) => Promise<void>;
+  addPost: (
+    newPost: Omit<PostItem, "id" | "userId" | "user" | "createdAt" | "likesCount" | "isLiked">
+  ) => Promise<PostItem>;
   updatePost: (id: string, updates: Partial<Pick<PostItem, "content" | "activityMinutes" | "imageUrls">>) => Promise<void>;
   deletePost: (id: string) => Promise<void>;
   addRecord: (newRecord: Omit<RecordItem, "id" | "createdAt" | "updatedAt">) => Promise<RecordItem>;
-  updateRecord: (id: string, updates: Partial<Pick<RecordItem, "title" | "description" | "coverImageUrl">>) => Promise<void>;
+  updateRecord: (id: string, updates: Partial<Pick<RecordItem, "title" | "description" | "coverImageUrl" | "startedAt">>) => Promise<void>;
   deleteRecord: (id: string) => Promise<void>;
   updateProfile: (updates: { name?: string; avatarUrl?: string }) => Promise<void>;
   isCreatePostOpen: boolean;
@@ -106,23 +122,31 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 
 const STORAGE_KEY_RECORDS = "progress_app_records_v1";
 const STORAGE_KEY_POSTS = "progress_app_posts_v1";
-const STORAGE_KEY_USER = "progress_app_user_v1";
+const STORAGE_KEY_VISITOR_ID = "progress_app_visitor_id_v1";
+
+function getVisitorId(): string {
+  const saved = localStorage.getItem(STORAGE_KEY_VISITOR_ID);
+  if (saved) return saved;
+  const visitorId = crypto.randomUUID();
+  localStorage.setItem(STORAGE_KEY_VISITOR_ID, visitorId);
+  return visitorId;
+}
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_USER);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
     return DEFAULT_USER;
   });
 
   const [records, setRecords] = useState<RecordItem[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_RECORDS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const storedRecords = JSON.parse(saved) as RecordItem[];
+        return storedRecords.map((record) => ({
+          ...record,
+          startedAt: record.startedAt || record.createdAt.slice(0, 10),
+        }));
+      }
     } catch (e) {
       console.error(e);
     }
@@ -132,7 +156,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [posts, setPosts] = useState<PostItem[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_POSTS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const storedPosts = JSON.parse(saved) as PostItem[];
+        return storedPosts.map((post) => ({
+          ...post,
+          likesCount: post.likesCount ?? 0,
+          isLiked: post.isLiked ?? false,
+        }));
+      }
     } catch (e) {
       console.error(e);
     }
@@ -140,39 +171,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
   const [selectedRecordIdForPost, setSelectedRecordIdForPost] = useState<string | null>(null);
-
-  // ユーザー情報の同期（Supabase Auth）
-  useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return;
-
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        setCurrentUser({
-          id: user.id,
-          name: user.user_metadata?.name || "guest user",
-          avatarUrl: user.user_metadata?.avatar_url || DEFAULT_USER.avatarUrl,
-        });
-      }
-    });
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setCurrentUser({
-          id: session.user.id,
-          name: session.user.user_metadata?.name || "guest user",
-          avatarUrl: session.user.user_metadata?.avatar_url || DEFAULT_USER.avatarUrl,
-        });
-      } else {
-        setCurrentUser(DEFAULT_USER);
-      }
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
 
   // Supabase からのデータ取得
   const fetchSupabaseData = useCallback(async () => {
@@ -180,21 +181,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setIsLoading(true);
 
-      const [recordsResult, postsResult] = await Promise.all([
+      const [recordsResult, postsResult, profileResult] = await Promise.all([
         supabase.from("records").select("*").order("created_at", { ascending: false }),
-        supabase.from("posts").select("*, profiles(*)").order("created_at", { ascending: false }),
+        supabase.from("posts").select("*").order("created_at", { ascending: false }),
+        supabase.from("profiles").select("*").eq("id", GUEST_ID).maybeSingle(),
       ]);
 
       if (recordsResult.error) throw recordsResult.error;
       if (postsResult.error) throw postsResult.error;
+      if (profileResult.error) throw profileResult.error;
+
+      const sharedUser = profileResult.data
+        ? {
+            id: profileResult.data.id,
+            name: profileResult.data.name,
+            avatarUrl: profileResult.data.avatar_url || DEFAULT_USER.avatarUrl,
+          }
+        : DEFAULT_USER;
+      const likeStates = await invokeSharedApi<{
+        likes: Record<string, { count: number; isLiked: boolean }>;
+      }>("get-post-likes", { visitorId: getVisitorId() });
 
       if (recordsResult.data) {
-        const mappedRecords: RecordItem[] = recordsResult.data.map((r: any) => ({
+        const mappedRecords: RecordItem[] = recordsResult.data.map((r: RecordRow) => ({
           id: r.id,
           userId: r.user_id,
           title: r.title,
           description: r.description || "",
           coverImageUrl: r.cover_image_url || "",
+          startedAt: r.started_at,
           createdAt: r.created_at,
           updatedAt: r.updated_at,
         }));
@@ -202,27 +217,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (postsResult.data) {
-        const mappedPosts: PostItem[] = postsResult.data.map((p: any) => ({
+        const mappedPosts: PostItem[] = postsResult.data.map((p: PostRow) => ({
           id: p.id,
           recordId: p.record_id,
           userId: p.user_id,
-          user: p.profiles
-            ? {
-                id: p.profiles.id,
-                name: p.profiles.name || "guest user",
-                avatarUrl: p.profiles.avatar_url || DEFAULT_USER.avatarUrl,
-              }
-            : DEFAULT_USER,
+          user: sharedUser,
           content: p.content,
           activityMinutes: p.activity_minutes || 0,
           imageUrls: p.image_urls || [],
-          likesCount: p.likes_count || 0,
           createdAt: p.created_at,
+          likesCount: likeStates.likes[p.id]?.count ?? 0,
+          isLiked: likeStates.likes[p.id]?.isLiked ?? false,
         }));
         setPosts(mappedPosts);
       }
+      setCurrentUser(sharedUser);
+      setDataError(null);
     } catch (err) {
-      console.warn("Supabase fetch failed, falling back to local storage:", err);
+      console.error("Supabase data could not be loaded:", err);
+      setDataError(
+        "共有データを読み込めませんでした。Supabaseの設定とデプロイ状態を確認してください。"
+      );
     } finally {
       setIsLoading(false);
     }
@@ -279,14 +294,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [posts]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(currentUser));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [currentUser]);
-
   const getRecordById = (id: string) => records.find((r) => r.id === id);
 
   const getPostsByRecordId = (recordId: string) =>
@@ -298,7 +305,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const record = records.find((r) => r.id === recordId);
     const recordPosts = posts.filter((p) => p.recordId === recordId);
 
-    const currentDay = record ? calculateDay(record.createdAt) : 1;
+    const currentDay = record ? calculateDay(record.startedAt) : 1;
     const postCount = recordPosts.length;
     const totalMinutes = recordPosts.reduce((acc, curr) => acc + (curr.activityMinutes || 0), 0);
 
@@ -309,78 +316,69 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   };
 
+  const togglePostLike = async (id: string) => {
+    const post = posts.find((item) => item.id === id);
+    if (!post) return;
+
+    if (isSupabaseConfigured) {
+      const { likesCount, isLiked } = await invokeSharedApi<{
+        likesCount: number;
+        isLiked: boolean;
+      }>("toggle-post-like", { postId: id, visitorId: getVisitorId() });
+      setPosts((previous) =>
+        previous.map((item) =>
+          item.id === id ? { ...item, likesCount, isLiked } : item
+        )
+      );
+      return;
+    }
+
+    setPosts((previous) =>
+      previous.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              isLiked: !item.isLiked,
+              likesCount: Math.max(0, item.likesCount + (item.isLiked ? -1 : 1)),
+            }
+          : item
+      )
+    );
+  };
+
   const addPost = async (
-    newPostData: Omit<PostItem, "id" | "userId" | "user" | "createdAt" | "likesCount">
+    newPostData: Omit<
+      PostItem,
+      "id" | "userId" | "user" | "createdAt" | "likesCount" | "isLiked"
+    >
   ) => {
     let createdPost: PostItem;
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data, error } = await supabase
-          .from("posts")
-          .insert({
-            record_id: newPostData.recordId,
-            user_id: currentUser.id,
-            content: newPostData.content,
-            activity_minutes: newPostData.activityMinutes,
-            image_urls: newPostData.imageUrls,
-          })
-          .select("*, profiles(*)")
-          .single();
-
-        if (error) throw error;
-
-        createdPost = {
-          id: data.id,
-          recordId: data.record_id,
-          userId: data.user_id,
-          user: data.profiles
-            ? {
-                id: data.profiles.id,
-                name: data.profiles.name || currentUser.name,
-                avatarUrl: data.profiles.avatar_url || currentUser.avatarUrl,
-              }
-            : currentUser,
-          content: data.content,
-          activityMinutes: data.activity_minutes || 0,
-          imageUrls: data.image_urls || [],
-          likesCount: data.likes_count || 0,
-          createdAt: data.created_at,
-        };
-      } catch (err) {
-        console.error("Supabase insert post failed, fallback to local:", err);
-        createdPost = {
-          ...newPostData,
-          id: "post-" + Date.now(),
-          userId: currentUser.id,
-          user: currentUser,
-          likesCount: 0,
-          createdAt: new Date().toISOString(),
-        };
-      }
+    if (isSupabaseConfigured) {
+      const { post } = await invokeSharedApi<{ post: PostRow }>("create-post", newPostData);
+      createdPost = {
+        id: post.id,
+        recordId: post.record_id,
+        userId: post.user_id,
+        user: currentUser,
+        content: post.content,
+        activityMinutes: post.activity_minutes,
+        imageUrls: post.image_urls,
+        createdAt: post.created_at,
+        likesCount: 0,
+        isLiked: false,
+      };
     } else {
       createdPost = {
         ...newPostData,
         id: "post-" + Date.now(),
         userId: currentUser.id,
         user: currentUser,
-        likesCount: 0,
         createdAt: new Date().toISOString(),
+        likesCount: 0,
+        isLiked: false,
       };
     }
-
     setPosts((prev) => [createdPost, ...prev]);
-
-    if (newPostData.imageUrls && newPostData.imageUrls.length > 0) {
-      setRecords((prev) =>
-        prev.map((r) =>
-          r.id === newPostData.recordId
-            ? { ...r, coverImageUrl: newPostData.imageUrls[0], updatedAt: new Date().toISOString() }
-            : r
-        )
-      );
-    }
-
     return createdPost;
   };
 
@@ -388,144 +386,94 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     id: string,
     updates: Partial<Pick<PostItem, "content" | "activityMinutes" | "imageUrls">>
   ) => {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase
-          .from("posts")
-          .update({
-            content: updates.content,
-            activity_minutes: updates.activityMinutes,
-            image_urls: updates.imageUrls,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", id);
-      } catch (err) {
-        console.error("Supabase update post failed:", err);
-      }
+    if (isSupabaseConfigured) {
+      await invokeSharedApi("update-post", {
+        id,
+        ...(updates.content !== undefined ? { content: updates.content } : {}),
+        ...(updates.activityMinutes !== undefined
+          ? { activityMinutes: updates.activityMinutes }
+          : {}),
+        ...(updates.imageUrls !== undefined ? { imageUrls: updates.imageUrls } : {}),
+      });
     }
-    setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+    setPosts((prev) => prev.map((post) => (post.id === id ? { ...post, ...updates } : post)));
   };
 
   const deletePost = async (id: string) => {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase.from("posts").delete().eq("id", id);
-      } catch (err) {
-        console.error("Supabase delete post failed:", err);
-      }
-    }
-    setPosts((prev) => prev.filter((p) => p.id !== id));
+    if (isSupabaseConfigured) await invokeSharedApi("delete-post", { id });
+    setPosts((prev) => prev.filter((post) => post.id !== id));
   };
 
-  const addRecord = async (newRecordData: Omit<RecordItem, "id" | "createdAt" | "updatedAt">) => {
+  const addRecord = async (
+    newRecordData: Omit<RecordItem, "id" | "createdAt" | "updatedAt">
+  ) => {
     let createdRecord: RecordItem;
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data, error } = await supabase
-          .from("records")
-          .insert({
-            user_id: currentUser.id,
-            title: newRecordData.title,
-            description: newRecordData.description || "",
-            cover_image_url: newRecordData.coverImageUrl || "",
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        createdRecord = {
-          id: data.id,
-          userId: data.user_id,
-          title: data.title,
-          description: data.description || "",
-          coverImageUrl: data.cover_image_url || "",
-          createdAt: data.created_at,
-          updatedAt: data.updated_at,
-        };
-      } catch (err) {
-        console.error("Supabase insert record failed, fallback to local:", err);
-        createdRecord = {
-          ...newRecordData,
-          id: "rec-" + Date.now(),
-          userId: currentUser.id,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-      }
+    if (isSupabaseConfigured) {
+      const { record } = await invokeSharedApi<{ record: RecordRow }>(
+        "create-record",
+        newRecordData
+      );
+      createdRecord = {
+        id: record.id,
+        userId: record.user_id,
+        title: record.title,
+        description: record.description,
+        coverImageUrl: record.cover_image_url,
+        startedAt: record.started_at,
+        createdAt: record.created_at,
+        updatedAt: record.updated_at,
+      };
     } else {
+      const now = new Date();
       createdRecord = {
         ...newRecordData,
         id: "rec-" + Date.now(),
         userId: currentUser.id,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
       };
     }
-
     setRecords((prev) => [...prev, createdRecord]);
     return createdRecord;
   };
 
   const updateRecord = async (
     id: string,
-    updates: Partial<Pick<RecordItem, "title" | "description" | "coverImageUrl">>
+    updates: Partial<Pick<RecordItem, "title" | "description" | "coverImageUrl" | "startedAt">>
   ) => {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase
-          .from("records")
-          .update({
-            title: updates.title,
-            description: updates.description,
-            cover_image_url: updates.coverImageUrl,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", id);
-      } catch (err) {
-        console.error("Supabase update record failed:", err);
-      }
+    if (isSupabaseConfigured) {
+      await invokeSharedApi("update-record", {
+        id,
+        ...(updates.title !== undefined ? { title: updates.title } : {}),
+        ...(updates.description !== undefined ? { description: updates.description } : {}),
+        ...(updates.coverImageUrl !== undefined
+          ? { coverImageUrl: updates.coverImageUrl }
+          : {}),
+        ...(updates.startedAt !== undefined ? { startedAt: updates.startedAt } : {}),
+      });
     }
     setRecords((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r))
+      prev.map((record) =>
+        record.id === id
+          ? { ...record, ...updates, updatedAt: new Date().toISOString() }
+          : record
+      )
     );
   };
 
   const deleteRecord = async (id: string) => {
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase.from("records").delete().eq("id", id);
-      } catch (err) {
-        console.error("Supabase delete record failed:", err);
-      }
-    }
-    setRecords((prev) => prev.filter((r) => r.id !== id));
-    setPosts((prev) => prev.filter((p) => p.recordId !== id));
+    if (isSupabaseConfigured) await invokeSharedApi("delete-record", { id });
+    setRecords((prev) => prev.filter((record) => record.id !== id));
+    setPosts((prev) => prev.filter((post) => post.recordId !== id));
   };
 
   const updateProfile = async (updates: { name?: string; avatarUrl?: string }) => {
-    const updated = {
-      ...currentUser,
+    if (isSupabaseConfigured) await invokeSharedApi("update-profile", updates);
+    setCurrentUser((user) => ({
+      ...user,
       ...(updates.name ? { name: updates.name } : {}),
       ...(updates.avatarUrl ? { avatarUrl: updates.avatarUrl } : {}),
-    };
-    setCurrentUser(updated);
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase
-          .from("profiles")
-          .update({
-            ...(updates.name ? { name: updates.name } : {}),
-            ...(updates.avatarUrl ? { avatar_url: updates.avatarUrl } : {}),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", currentUser.id);
-      } catch (err) {
-        console.error("Supabase update profile failed:", err);
-      }
-    }
+    }));
   };
 
   return (
@@ -535,10 +483,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         records,
         posts,
         isLoading,
+        dataError,
         isCloudConnected: isSupabaseConfigured,
         getRecordById,
         getPostsByRecordId,
         getRecordStats,
+        togglePostLike,
         addPost,
         updatePost,
         deletePost,

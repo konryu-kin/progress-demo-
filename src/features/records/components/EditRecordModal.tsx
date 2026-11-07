@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { X, Camera, Loader2 } from "lucide-react";
 import { useData } from "@/context/DataContext";
 import { uploadImageFile } from "@/lib/storage";
+import { toLocalDateString } from "@/lib/utils";
 import type { RecordItem } from "@/types";
 
 interface EditRecordModalProps {
@@ -38,7 +39,9 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
   const [title, setTitle] = useState(record.title);
   const [description, setDescription] = useState(record.description || "");
   const [coverImageUrl, setCoverImageUrl] = useState(record.coverImageUrl || PRESET_COVERS[0].url);
+  const [startedAt, setStartedAt] = useState(record.startedAt);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) return null;
 
@@ -49,8 +52,8 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
         setIsUploading(true);
         const url = await uploadImageFile(file, "records");
         setCoverImageUrl(url);
-      } catch (err) {
-        alert("画像のアップロードに失敗しました");
+      } catch (error) {
+        alert(`画像をアップロードできませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
       } finally {
         setIsUploading(false);
       }
@@ -61,12 +64,20 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
     e.preventDefault();
     if (!title.trim()) return;
 
-    await updateRecord(record.id, {
-      title: title.trim(),
-      description: description.trim(),
-      coverImageUrl,
-    });
-    onClose();
+    try {
+      setIsSaving(true);
+      await updateRecord(record.id, {
+        title: title.trim(),
+        description: description.trim(),
+        coverImageUrl,
+        startedAt,
+      });
+      onClose();
+    } catch (error) {
+      alert(`レコードを保存できませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -99,6 +110,18 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">開始日 *</label>
+              <input
+                type="date"
+                className="form-input"
+                value={startedAt}
+                max={toLocalDateString()}
+                onChange={(e) => setStartedAt(e.target.value)}
+                required
               />
             </div>
 
@@ -150,9 +173,9 @@ export const EditRecordModal: React.FC<EditRecordModalProps> = ({
             <button
               type="submit"
               className="btn-primary"
-              disabled={!title.trim() || isUploading}
+              disabled={!title.trim() || isUploading || isSaving}
             >
-              {isUploading ? "処理中..." : "保存する"}
+              {isUploading || isSaving ? "保存中..." : "保存する"}
             </button>
           </div>
         </form>

@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { invokeSharedApi } from "./sharedApi";
 
 export const BUCKET_NAME = "progress-media";
 
@@ -10,6 +11,13 @@ export async function uploadImageFile(
   file: File,
   folder: "posts" | "records" | "avatars" = "posts"
 ): Promise<string> {
+  if (file.size === 0 || file.size > 5 * 1024 * 1024) {
+    throw new Error("画像は5MB以下のファイルを選択してください");
+  }
+  if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+    throw new Error("JPEG、PNG、WebP、GIF形式の画像を選択してください");
+  }
+
   if (!isSupabaseConfigured || !supabase) {
     // ローカルモード（Base64 DataURL）
     return new Promise((resolve, reject) => {
@@ -26,24 +34,21 @@ export async function uploadImageFile(
     });
   }
 
-  // Supabase Storage モード
-  const fileExt = file.name.split(".").pop();
-  const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-  const filePath = `${folder}/${fileName}`;
-
-  const { error: uploadError } = await supabase.storage
+  const signedUpload = await invokeSharedApi<{
+    path: string;
+    token: string;
+    publicUrl: string;
+  }>("create-upload-url", {
+    folder,
+    contentType: file.type,
+    size: file.size,
+  });
+  const { error } = await supabase.storage
     .from(BUCKET_NAME)
-    .upload(filePath, file, {
+    .uploadToSignedUrl(signedUpload.path, signedUpload.token, file, {
       cacheControl: "3600",
-      upsert: false,
+      contentType: file.type,
     });
-
-  if (uploadError) {
-    console.error("Supabase Storage upload error:", uploadError);
-    throw uploadError;
-  }
-
-  const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(filePath);
-  return data.publicUrl;
+  if (error) throw error;
+  return signedUpload.publicUrl;
 }
-

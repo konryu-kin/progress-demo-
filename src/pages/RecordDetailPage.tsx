@@ -4,6 +4,7 @@ import { ChevronLeft, Plus, Trash2, Edit3, Calendar, FileText } from "lucide-rea
 import { useData } from "@/context/DataContext";
 import { TimelinePostCard } from "@/features/posts/components/TimelinePostCard";
 import { EditRecordModal } from "@/features/records/components/EditRecordModal";
+import { formatMinutes } from "@/lib/utils";
 
 export const RecordDetailPage: React.FC = () => {
   const { recordId } = useParams<{ recordId: string }>();
@@ -43,14 +44,18 @@ export const RecordDetailPage: React.FC = () => {
     setIsCreatePostOpen(true);
   };
 
-  const handleDeleteRecord = () => {
+  const handleDeleteRecord = async () => {
     if (
       window.confirm(
         `「${record.title}」と、このレコードに紐づくすべての投稿を削除しますか？`
       )
     ) {
-      deleteRecord(record.id);
-      navigate("/");
+      try {
+        await deleteRecord(record.id);
+        navigate("/");
+      } catch (error) {
+        alert(`レコードを削除できませんでした: ${error instanceof Error ? error.message : "不明なエラー"}`);
+      }
     }
   };
 
@@ -104,6 +109,10 @@ export const RecordDetailPage: React.FC = () => {
               {stats.postCount}
             </div>
           </div>
+          <div className="stat-item">
+            <div className="stat-label">累計活動時間</div>
+            <div className="stat-value">{formatMinutes(stats.totalMinutes)}</div>
+          </div>
         </div>
 
         <button
@@ -135,11 +144,13 @@ export const RecordDetailPage: React.FC = () => {
         </div>
       )}
 
-      <EditRecordModal
-        record={record}
-        isOpen={isEditRecordOpen}
-        onClose={() => setIsEditRecordOpen(false)}
-      />
+      {isEditRecordOpen && (
+        <EditRecordModal
+          record={record}
+          isOpen
+          onClose={() => setIsEditRecordOpen(false)}
+        />
+      )}
     </div>
   );
 };
